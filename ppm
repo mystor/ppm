@@ -1,0 +1,298 @@
+#!/usr/bin/env python
+
+import argparse, subprocess, re, os, sys, shutil
+
+MODULES = 'ppm_env'
+REQUIREMENTS = 'requirements.txt'
+
+#########################
+# Python Version Parser #
+#########################
+
+class PyVersion(object):
+    @staticmethod
+    def from_string(text):
+        m = re.match(r'(?P<major>[0-9]+)((\.(?P<minor>[0-9]+)((\.(?P<micro>[0-9]+)(((?P<nano>[abcf][0-9]))?))|\+|\.\*))|\+|\.\*)', text)
+        major = m.group('major')
+        minor = m.group('minor')
+        micro = m.group('micro')
+        nano = m.group('nano')
+
+        return PyVersion(
+            int(major) if major != None else None, 
+            int(minor) if minor != None else None, 
+            int(micro) if micro != None else None,
+            int(nano, 16) if nano != None else None)
+
+    @staticmethod
+    def from_hexver(hexver):
+        major = hexver >> (6 * 4)
+        minor = (hexver >> (4 * 4)) & 0xFF
+        micro = (hexver >> (2 * 4)) & 0xFF
+        nano = hexver & 0xFF
+        return PyVersion(major, minor, micro, nano)
+
+    def __init__(self, major=None, minor=None, micro=None, nano=None):
+        self.major = major
+        self.minor = minor
+        self.micro = micro
+        self.nano = nano
+
+    def __str__(self):
+        out = ''
+        if self.major != None:
+            out += str(self.major) + '.'
+            if self.minor != None:
+                out += str(self.minor) + '.'
+                if self.micro != None:
+                    out += str(self.micro)
+                    if self.nano != None:
+                        out += hex(self.nano)[2:]
+                else:
+                    out += '*'
+            else:
+                out += '*'
+        else:
+            out += '*'
+
+        return out
+
+    def __eq__(self, other):
+        if self.major != None and other.major != None:
+            if self.major != other.major:
+                return False
+            if self.minor != None and other.minor != None:
+                if self.minor != other.minor:
+                    return False
+                if self.micro != None and other.micro != None:
+                    if self.micro != other.micro:
+                        return False
+                    if self.nano != None and other.nano != None:
+                        if self.nano != other.nano:
+                            return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+
+####################
+# HELPER FUNCTIONS #
+####################
+
+def bin_ver(binary):
+    """
+    Get the version of a given python binary.  
+    Return none if it doesn't exist 
+    """
+    try:
+        proc = subprocess.Popen(
+            [binary, '-c', 'import sys; exit(str(sys.hexversion))'], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT)
+        hexver = int(proc.communicate()[0])
+        return PyVersion.from_hexver(hexver)
+    except:
+        return None
+
+
+def req_ver(req=REQUIREMENTS):
+    """ Parse requirements file for python version """
+    if os.path.exists(req):
+        with open(req) as reqs:
+            for line in reqs:
+                m = re.search('^# *PYTHON=(?P<ver>.+)', line)
+                if m:
+                    return PyVersion.from_string(m.group('ver'))
+    return PyVersion()
+
+
+def find_pybin(pyver=PyVersion()):
+    """ Find a python binary that matches the given python version """
+
+    if pyver == bin_ver('python'):
+        return 'python'
+    elif pyver == bin_ver('python3'):
+        return 'python3'
+    else:
+        raise Exception('Python with version `{}` not found'.format(pyver))
+
+
+def activate_venv(env):
+    """ Activate the given virtualenv """
+
+    # TODO: The following line may be unix-specific.  Check if it works on windows
+    activate = os.path.join(env, 'bin', 'activate_this.py')
+    if os.path.exists(activate):
+        execfile(activate, dict(__file__=activate))
+    else:
+        raise Exception('{} does not exist.  Cannot activate venv'.format(activate))
+
+
+def get_env(args):
+    """ Gets the environment path from arguments """
+    return args.env if args.env else MODULES
+
+
+def with_env(args):
+    """ Activates an environment from arguments """
+    env = get_env(args)
+
+    if os.path.exists(env):
+        activate_venv(env)
+    else:
+        cmd_init(args)
+
+
+###############
+# SUBCOMMANDS #
+###############
+
+def cmd_init(args):
+    env = get_env(args)
+
+    if os.path.exists(env):
+        raise Exception('Env folder already exists. Call `ppm clean` before calling init again')
+    else:
+        print('Setting up virtualenv')
+        # Find the python binary
+        pybin = args.pybin
+        if not pybin:
+            if args.pyver:
+                pyver = PyVersion.from_string(args.pyver)
+            else:
+                pyver = req_ver()
+            pybin = find_pybin(pyver)
+
+        # Create the virtual environment
+        vproc = subprocess.Popen(['virtualenv', '--python', pybin, env])
+        vproc.communicate()
+        if vproc.returncode != 0:
+            raise Exception('Unable to create virtualenv')
+
+        reqfile = args.requirement
+        if not reqfile:
+            reqfile=REQUIREMENTS
+
+        activate_venv(env)
+        if os.path.exists(reqfile):
+            print('Installing required packages')
+            if subprocess.call(['pip', 'install', '-r', reqfile]) != 0:
+                raise Exception('Unable to install requirements')
+            print('Successfully installed required packages... Done initialization')
+
+
+def cmd_install(args):
+    with_env(args)
+    subprocess.call(['pip', 'install'] + args.requirement)
+
+def cmd_run(args):
+    with_env(args)
+    # TODO: Make this use the mainfile if no arguments are passed
+    subprocess.call(['python'] + args.file)
+
+def cmd_uninstall(args):
+    with_env(args)
+    subprocess.call(['pip', 'uninstall'] + args.requirement)
+
+def cmd_shell(args):
+    with_env(args)
+    subprocess.call(['python'])
+
+def cmd_clean(args):
+    env = get_env(args)
+    if os.path.exists(env):
+        print('Removing environment: `{}`'.format(env))
+        shutil.rmtree(env)
+    else:
+        raise Exception('Nothing to clean')
+
+def cmd_freeze(args):
+    with_env(args)
+    pyver = bin_ver('python')
+
+    # Don't record the micro and nano versioning 
+    pyver.micro = None
+    pyver.nano = None
+    
+    if args.save:
+        with open(args.save, 'w') as f:
+            f.write('# PYTHON={}\n'.format(str(pyver)))
+            sp = subprocess.Popen(['pip', 'freeze'], stdout=subprocess.PIPE)
+            f.write(sp.communicate()[0])
+    else:
+        print('# PYTHON={}'.format(str(pyver)))
+        subprocess.call(['pip', 'freeze'])
+
+###########
+# PARSERS #
+###########
+
+def add_env_argument(parser):
+    parser.add_argument('-e', '--env', help='virtualenv (default: {})'.format(MODULES))
+
+
+parser = argparse.ArgumentParser(description='NPM-like python project manager')
+subparsers = parser.add_subparsers(title='Commands')
+
+# INIT
+parser_init = subparsers.add_parser('init', help='Initialize environment')
+add_env_argument(parser_init)
+parser_init.add_argument('-r', '--requirement', help='The requirements.txt file for the project (default: {})'.format(REQUIREMENTS), default=REQUIREMENTS)
+
+pygrp = parser_init.add_mutually_exclusive_group()
+pygrp.add_argument('-b', '--pybin', help='Python binary to use')
+pygrp.add_argument('-V', '--pyver', help='Python version to use')
+
+parser_init.set_defaults(func=cmd_init)
+
+
+# INSTALL
+parser_install = subparsers.add_parser('install', help='Install a pypi package')
+add_env_argument(parser_install)
+parser_install.add_argument('requirement', help='What to install (Passed to pip)', nargs=argparse.REMAINDER)
+
+parser_install.set_defaults(func=cmd_install)
+
+
+# RUN
+parser_run = subparsers.add_parser('run', help='Run a python file')
+add_env_argument(parser_run)
+parser_run.add_argument('file', help='Python file to execute followed by flags', nargs=argparse.REMAINDER)
+
+parser_run.set_defaults(func=cmd_run)
+
+
+# UNINSTALL
+parser_uninstall = subparsers.add_parser('uninstall', help='Uninstall a pypi package')
+add_env_argument(parser_uninstall)
+parser_uninstall.add_argument('requirement', help='What to uninstall (Passed to pip)', nargs=argparse.REMAINDER)
+
+parser_uninstall.set_defaults(func=cmd_uninstall)
+
+
+# SHELL
+parser_shell = subparsers.add_parser('shell', help='Enter a python shell')
+add_env_argument(parser_shell)
+
+parser_shell.set_defaults(func=cmd_shell)
+
+
+# CLEAN
+parser_clean = subparsers.add_parser('clean', help='Clean up environment')
+add_env_argument(parser_clean)
+
+parser_clean.set_defaults(func=cmd_clean)
+
+
+# FREEZE
+parser_freeze = subparsers.add_parser('freeze', help='Print requirements.txt file')
+add_env_argument(parser_freeze)
+parser_freeze.add_argument('-s', '--save', help='Save instead of print (default: {})'.format(REQUIREMENTS), nargs='?', const=REQUIREMENTS)
+
+parser_freeze.set_defaults(func=cmd_freeze)
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    args.func(args)
