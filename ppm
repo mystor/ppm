@@ -12,7 +12,7 @@ REQUIREMENTS = 'requirements.txt'
 class PyVersion(object):
     @staticmethod
     def from_string(text):
-        m = re.match(r'(?P<major>[0-9]+)((\.(?P<minor>[0-9]+)((\.(?P<micro>[0-9]+)(((?P<nano>[abcf][0-9]))?))|\+|\.\*))|\+|\.\*)', text)
+        m = re.match(r'^\s*(?P<major>[0-9]+)(\.(?P<minor>[0-9]+)(\.(?P<micro>[0-9]+)(?P<nano>[abcf][0-9])?)?)?\s*$', text)
         major = m.group('major')
         minor = m.group('minor')
         micro = m.group('micro')
@@ -41,19 +41,13 @@ class PyVersion(object):
     def __str__(self):
         out = ''
         if self.major != None:
-            out += str(self.major) + '.'
+            out += str(self.major)
             if self.minor != None:
-                out += str(self.minor) + '.'
+                out += '.' + str(self.minor)
                 if self.micro != None:
-                    out += str(self.micro)
+                    out += '.' + str(self.micro)
                     if self.nano != None:
                         out += hex(self.nano)[2:]
-                else:
-                    out += '*'
-            else:
-                out += '*'
-        else:
-            out += '*'
 
         return out
 
