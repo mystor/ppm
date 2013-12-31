@@ -143,13 +143,20 @@ def activate_venv(env):
 def get_env(args, climb=False):
     """ Gets the environment path from arguments """
     if climb:
-        pass
+        if args.env:
+            return args.env
+        else:
+            path=os.getcwd()
+            while True:
+                if MODULES in os.listdir(path):
+                    return os.path.join(path, MODULES)
+                path=os.path.dirname(path)
     return args.env or MODULES
 
 
-def with_env(args):
+def with_env(args, climb=False):
     """ Activates an environment from arguments """
-    env = get_env(args)
+    env = get_env(args, climb=climb)
 
     if os.path.exists(env):
         activate_venv(env)
@@ -204,7 +211,7 @@ def cmd_install(args):
 
 def cmd_run(args):
     """ Run a python file in the project's venv """
-    with_env(args)
+    with_env(args, True)
     # TODO: Make this use the mainfile if no arguments are passed
     subprocess.call(['python'] + args.file)
 
@@ -215,7 +222,7 @@ def cmd_uninstall(args):
 
 def cmd_shell(args):
     """ Start a python shell in the project's venv """
-    with_env(args)
+    with_env(args, True)
     subprocess.call(['python'])
 
 def cmd_clean(args):
@@ -229,7 +236,7 @@ def cmd_clean(args):
 
 def cmd_freeze(args):
     """ Write the status of the project's venv to stdout """
-    with_env(args)
+    with_env(args, True)
     pyver = bin_ver('python')
 
     # Don't record the micro and nano versioning

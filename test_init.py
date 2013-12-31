@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 # pylint: disable-msg=R0904,C0103,W0201
 
-""" Test the init subcommand """
+""" Testing Suite for ppm """
 from scripttest import TestFileEnvironment
-import unittest, os
+import unittest, os, tempfile, shutil
 
-PPM = '../ppm'
-TEST_ENV = './test-output'
+PPM = os.path.join(os.getcwd(), 'ppm')
+TEST_ENV = 'test-output'
 
 class TestInit(unittest.TestCase):
     """ Test the init subcommand """
 
     def setUp(self):
-        self.env = TestFileEnvironment(TEST_ENV)
+        self.tmpdir = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmpdir, TEST_ENV)
+        self.env = TestFileEnvironment(self.path)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
 
     def test_creates_default(self):
         'it creates the virtualenv'
@@ -55,15 +60,23 @@ class TestRun(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.env = TestFileEnvironment(TEST_ENV)
-        with open(os.path.join(TEST_ENV, 'file.py'), 'w') as file_py:
+        cls.tmpdir = tempfile.mkdtemp()
+        cls.path = os.path.join(cls.tmpdir, TEST_ENV)
+        cls.env = TestFileEnvironment(cls.path)
+
+        with open(os.path.join(cls.path, 'file.py'), 'w') as file_py:
             file_py.write(FILE_PY)
-        with open(os.path.join(TEST_ENV, 'requirements.txt'), 'w') as requirements_txt:
+        with open(os.path.join(cls.path, 'requirements.txt'), 'w') as requirements_txt:
             requirements_txt.write(REQUIREMENTS_TXT)
-        os.mkdir(os.path.join(TEST_ENV, 'subdir'))
-        with open(os.path.join(TEST_ENV, 'subdir', 'file.py'), 'w') as file_py:
+
+        os.mkdir(os.path.join(cls.path, 'subdir'))
+        with open(os.path.join(cls.path, 'subdir', 'file.py'), 'w') as file_py:
             file_py.write(FILE_PY)
         cls.env.run(PPM, 'init')
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir)
 
     def test_file_runs(self):
         'It successfully runs a simple python script in the virtualenv'
@@ -73,7 +86,7 @@ class TestRun(unittest.TestCase):
     def test_run_subfolder(self):
         'It runs a file in a subdirectory'
         out = self.env.run(PPM, 'run', 'file.py',
-                cwd=os.path.join(TEST_ENV, 'subdir'))
+                cwd=os.path.join(self.path, 'subdir'))
         self.assertEquals(out.stdout, 'Success!\n')
 
 
@@ -85,12 +98,19 @@ class TestShell(unittest.TestCase):
         # These tests can share a single virtualenv
         # They will not need to replace it every time
         # as the commands should be nondestructive
-        cls.env = TestFileEnvironment(TEST_ENV)
-        with open(os.path.join(TEST_ENV, 'requirements.txt'), 'w') as requirements_txt:
+        cls.tmpdir = tempfile.mkdtemp()
+        cls.path = os.path.join(cls.tmpdir, TEST_ENV)
+        cls.env = TestFileEnvironment(cls.path)
+
+        with open(os.path.join(cls.path, 'requirements.txt'), 'w') as requirements_txt:
             requirements_txt.write(REQUIREMENTS_TXT)
-        os.mkdir(os.path.join(TEST_ENV, 'subdir'))
+        os.mkdir(os.path.join(cls.path, 'subdir'))
 
         cls.env.run(PPM, 'init')
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir)
 
     def test_shell_launches(self):
         'It runs a shell'
@@ -100,7 +120,7 @@ class TestShell(unittest.TestCase):
     def test_shell_subfolder(self):
         'It runs a shell in a subdirectory'
         out = self.env.run(PPM, 'shell',
-                cwd=os.path.join(TEST_ENV, 'subdir'),
+                cwd=os.path.join(self.path, 'subdir'),
                 stdin="import pep8\nprint('Success!')")
         self.assertEquals(out.stdout, 'Success!\n')
 
